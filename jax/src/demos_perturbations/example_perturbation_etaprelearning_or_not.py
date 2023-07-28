@@ -4,11 +4,9 @@ Will start with s_z and adapt if needed
 """
 
 import os
-# os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=6' if you're using multi-processing try this
 import argparse
 import jax
 from jax import random, lax, vmap, jit, grad
-# from jax import pmap
 from jax import numpy as jnp
 import numpy as np
 import pickle
@@ -21,9 +19,6 @@ from genmodel import init_genmodel, compute_vfe_vectorized, parameterize_A0_no_c
 from inference import run_inference
 
 from matplotlib import pyplot as plt
-
-# cpus = jax.devices("cpu")
-# gpus = jax.devices("gpu")
 
 def run(init_key_num = 1, # number to initialize the jax random seed
         N = 50, # number of individuals
@@ -44,16 +39,6 @@ def run(init_key_num = 1, # number to initialize the jax random seed
     1A. Simulate a trajectory of the version with NO eta0-pre-learning
     """
     init_dict_global = get_default_inits(N, T, dt)
-    # init_dict_global['pi_w_spatial'] = 2.0
-    # init_dict_global['s_w'] = 1.5
-    # init_dict_global['posvel_init'] = {'pos_x_bounds': [-10., 10.],
-    #                                     'pos_y_bounds': [-10., 10.],
-    #                                     'vel_x_bounds': [-1., 1.],
-    #                                     'vel_x_bounds': [-1., 1.],
-    #                                     }
-    # init_dict_global['z_h'] = 0.1
-    # init_dict_global['z_hprime'] = 0.1
-    # init_dict_global['z_action'] = 0.001
 
     # initialize generative model, generative process, and meta parameters related to learning and inference
     pos, vel, genproc, new_key = init_gen_process(init_key, init_dict_global)
