@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import argparse
 from funcy import merge
 
-from utils import initialize_meta_params, get_default_inits, run_single_simulation
+from utils import initialize_meta_params, get_default_inits, run_single_simulation, str2bool
 from genprocess import init_gen_process
 from genmodel import init_genmodel
 
@@ -15,6 +15,8 @@ def run(
         N = 30, # the number of agents to change per initialization
         T = 100, # how long the simulation should run for (in seconds)
         dt = 0.01, # the time step size for stochastic integration (in seconds)
+        n_sectors = 4, # number of sensory sectors to divide each agent's visual field into
+        sector_angle = 60., # angle of each sensory sector in degrees
         last_T_seconds = 10, # how long from the last timestep backwards, to plot 
         save = False, # whether to save the results as an npz file to disk
         init_dict_override = None, # dictionary of parameters to override the default initialization
@@ -25,7 +27,7 @@ def run(
 
     # set up some global parameters
     key = random.PRNGKey(init_key_num)
-    init_dict = get_default_inits(N, T, dt)
+    init_dict = get_default_inits(N, T, dt, n_sectors=n_sectors, sector_angle=sector_angle)
     if init_dict_override is not None:
         init_dict = merge(init_dict, init_dict_override)
     
@@ -58,8 +60,6 @@ def run(
 
         plt.show()
 
-
-
 if __name__ == '__main__':
 
     # initialize ArgumentParser
@@ -80,6 +80,12 @@ if __name__ == '__main__':
     parser.add_argument('--last_T_seconds', '-lastT', type = float,
                 help = "How many seconds to plot from the end of the simulation",
                 dest = "last_T_seconds", default=10)
+    parser.add_argument('--n_sectors', '-nsec', type = int,
+                help = "Number of sensory sectors to divide each agent's visual field into",
+                dest = "n_sectors", default=4)
+    parser.add_argument('--sector_angle', '-secang', type = float,
+                help = "Angle of each sensory sector in degrees",
+                dest = "sector_angle", default=60.0)
     parser.add_argument('--dist_thr', '-dthr', type = float,
                 help = "Cut-off within which neighbouring agents are detected",
                 dest = "dist_thr", default=5.0)
@@ -122,8 +128,8 @@ if __name__ == '__main__':
     parser.add_argument('--nsteps_action', '-nsteps_action', type = int,
                 help = "Number of action steps per time step",
                 dest = "nsteps_action", default=1)
-    parser.add_argument('--normalize_v', '-nv', action = 'store_true',
-                help = "Whether to normalize the velocity vectors of all agents at each time step to unit magnitude",
+    parser.add_argument('--normalize_v', '-nv', type=str2bool,
+                nargs='?', const=True, help = "Whether to normalize the velocity vectors of all agents at each time step to unit magnitude",
                 dest = "normalize_v", default=True)
     # add an argument that is a boolean flag for whether to save the results as an npz file to disk (the history of positions and velocities)
     parser.add_argument('--save', '-save', action = 'store_true',
@@ -139,7 +145,7 @@ if __name__ == '__main__':
     meta_params_override = {k:v for k,v in vars(args).items() if k in ['infer_lr', 'nsteps_infer', 'action_lr', 'nsteps_action', 'normalize_v']}
 
     # get all the remaining arguments as a dictionary
-    common_args = {k:v for k,v in vars(args).items() if k in ['init_key_num', 'N', 'T', 'dt', 'last_T_seconds', 'save']}
+    common_args = {k:v for k,v in vars(args).items() if k in ['init_key_num', 'N', 'T', 'dt', 'n_sectors', 'sector_angle', 'last_T_seconds', 'save']}
     
     run(**common_args, init_dict_override=init_dict_override, meta_params_override=meta_params_override)
 
