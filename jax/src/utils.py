@@ -621,57 +621,6 @@ def compute_vfe_cosangle_timecourse_per_agent(state, agent_indices, genmodel, ge
         return pos_hist, F_hist, cos_angles_over_time
     
     return vmap(compute_perturbation_metric)(agent_indices)
- 
-
-# def compute_perturbability_score_vfe_multitimestep(starting_state, start_t, genmodel, genproc, meta_params, n_timesteps = 10):
-#     """ 
-#     WARNING: WIP -- DOES NOT WORK YET!!!!!
-#     New version of the perturbability score that computes the VFE metric for 'perturbability' for all agents over multiple timesteps.
-#     The perturbability for agent_i is how much the group free energy changes as a function of agent_i's velocity or heading vector.
-#     This is now computed by summing the total free energy over some sequence of timestep, and then computing the gradient of this summed free energy
-#     with respect to any agent's initial velocity vector. The perturbability score is then the norm of this gradient vector.
-#     """
-
-#     def single_timestep(pos_t, vel_t, mu_t, t_idx):
-
-#         # sample observations from generative process
-#         phi, all_dh_dr_self, empty_sectors_mask = get_observations_special(pos_t, vel_t, genproc, t_idx)
-
-#         # run hidden state inference 
-#         infer_res, mu_traj = run_inference(phi, mu_t, empty_sectors_mask, genmodel, **meta_params['inference_params'])
-#         mu_next, epsilon_z = infer_res
-
-#         # compute variational free energy 
-#         F = compute_vfe_vectorized(mu_next, phi, empty_sectors_mask, genmodel)
-
-#         # use results of inference to update actions
-#         vel_next = infer_actions(vel, epsilon_z, genmodel, all_dh_dr_self, **meta_params['action_params'])
-
-#         # use actions to update generative process
-#         pos_next = advance_positions(pos, vel_next, genproc['action_noise'][t_idx], dt = genproc['dt'])
-
-#         return pos_next, vel_next, mu_next, F
-    
-#     # create a custom step function that will run the simulation as you want
-#     def step_fn(carry, t):
-#         pos_past, vel_past, mu_past = carry
-#         out = single_timestep(pos_past, vel_past, mu_past, t)
-#         pos, vel, mu, F = out
-#         return (pos, vel, mu), F
-
-#     t_steps_to_eval = jnp.arange(start_t, start_t+n_timesteps)
-#     def compute_group_VFE_velocities(pos_t, vel_t, mu_t):
-#         """ Function that scans the `single_timestep` function over multiple timesteps, and then computes the sum of the free energies over all timesteps """
-#         _, F_hist = lax.scan(step_fn, (pos_t, vel_t, mu_t), t_steps_to_eval)
-#         return F_hist.sum()
-    
-#     dFall_dvel= jit(grad(compute_group_VFE_velocities, argnums = 1)) # create function that computes derivatives of group VFE with respect to heading direction (in angles) of all agents
-
-#     pos, vel, mu = starting_state
-#     dFall_dvel_eval = dFall_dvel(pos, vel, mu) # evaluate the gradients of the group's free energy with respect to each individual's velocity vector
-#     v_gradient_norm = jnp.linalg.norm(dFall_dvel_eval,axis=1) # take the norm of each of these gradient vectors, one norm computed per agent
-
-#     return v_gradient_norm
 
 def run_burnin_and_perturb_learning_old(real_key, N, dt, burn_in_time, perturb_time, init_state, n_agents_to_change, preparams, param_name, param_change_value, parameterization_mapping, genmodel, meta_params, learning_args):
     """
