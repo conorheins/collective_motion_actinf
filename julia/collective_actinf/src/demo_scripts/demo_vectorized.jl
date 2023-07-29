@@ -14,7 +14,7 @@ using Plots
 using LinearAlgebra
 
 # %% global constants that define the simulation
-D = 2
+D = 2 # spatial dimension
 T = 50; # time of simulation in seconds
 dt = 0.01f0; # integration window in seconds
 
@@ -45,7 +45,7 @@ init_r = GeoUtils.filter_with_ellipse(hex_coordinates,rx = r_x_length, ry = r_y_
 N = size(init_r,2)
 
 gm_params = GMUtils.generate_default_gm_params_linear_g(dt=dt, α_f = α_matrix, σ_z = exp(-logπ_z), σ_ω = exp(-logπ_ω), s_z = s_z, s_ω = s_ω, ns_φ = ns_φ, ns_x = ns_x)
-gp_params = SimUtils.generate_default_gp_params_linear_g(N, T, D, sector_angles = sector_angles, ns_φ = ns_φ, z_gp = 0.01f0, z_action = 0.01f0)
+gp_params = SimUtils.generate_default_gp_params_linear_g(N, T, D, sector_angles = sector_angles, ns_φ = ns_φ, z_gp = 0.01f0, z_action = 0.04f0)
 
 mean_vel, var_vel = [0f0, 1f0], [0.01f0, 0.01f0]
 init_v = GeoUtils.initialize_velocities(D, N, mean_vel, var_vel, sampling_fn = randn)
@@ -56,14 +56,30 @@ init_v = cat(init_v, zeros(Float32, D, N, gp_params[:T_sim] - 1), dims = 3)
 results_dict = SimUtils.run_simulation_new(init_r, init_v, gm_params, gp_params)
 r, v = results_dict[:r], results_dict[:v]
 
-# %% Sanity check with animation
+# %% Visualize the output
 
 keep_indices = 1:N
-time_indices = 1500:10:3000
+time_indices = 1500:3000
 x_range = (minimum(r[1,keep_indices,time_indices])-1, maximum(r[1,keep_indices,time_indices])+1)
 y_range = (minimum(r[2,keep_indices,time_indices])-1, maximum(r[2,keep_indices,time_indices])+1)
 
-anim = @animate for t in time_indices
-    scatter(r[1,keep_indices,t],r[2,keep_indices,t],label="",xlims = x_range, ylims = y_range)
+# plot the trajectories of each agent over time
+p = plot(r[1,1,time_indices], r[2,1,time_indices], xlims=x_range, ylims=y_range, label="", dpi=325)
+for agent_id in keep_indices[2:end]
+    plot!(p, r[1,agent_id,time_indices], r[2,agent_id,time_indices], xlims=x_range, ylims=y_range, label="", dpi=325)
 end
-gif(anim, "test.gif", fps=40)
+
+display(p)
+println("Press Enter to exit...")
+readline()
+
+# %% If you're running this in a console or IDE, can try using this animation code to display in an embedded plotting window
+
+# time_indices = 1500:10:3000
+# x_range = (minimum(r[1,keep_indices,time_indices])-1, maximum(r[1,keep_indices,time_indices])+1)
+# y_range = (minimum(r[2,keep_indices,time_indices])-1, maximum(r[2,keep_indices,time_indices])+1)
+
+# anim = @animate for t in time_indices
+#     scatter(r[1,keep_indices,t],r[2,keep_indices,t],label="",xlims = x_range, ylims = y_range)
+# end
+# gif(anim, "test.gif", fps=40)
