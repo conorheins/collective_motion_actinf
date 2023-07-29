@@ -4,16 +4,6 @@ from jax.scipy.linalg import block_diag
 import numpy as np
 from genmodel import create_temporal_precisions, create_temporal_precisions_numpy
 from scipy.special import factorial, gamma
-import colorednoise as cn
-
-
-def generate_colored_noise(beta = 1.0, N = 1, n_dim = 1, n_timesteps = 100):
-
-    noise_prime = cn.powerlaw_psd_gaussian(beta, (N*n_dim, 2*n_timesteps))
-    noise0 = vmap(lambda x: jnp.convolve(x, jnp.ones(2), mode='full'))(noise_prime)[:,1::2] # this integrates the motion of the noise to produce the state of the noise
-
-    noise_tensor = jnp.stack([noise_prime[:,:n_timesteps].reshape(n_dim, N, n_timesteps), noise0.reshape(n_dim, N, n_timesteps)]) # stacks the two orders of noise together
-    return jnp.transpose(noise_tensor, (3, 0, 1, 2)) # puts time dimension in the front
 
 def create_dt_matrix(dt, num_taylor_pns = 3, num_do = 3):
     """
@@ -43,14 +33,8 @@ def sample_noise(alpha, noise_magnitude, desired_smoothness, noise_type, state_d
 
     Sigma_time = jnp.array(create_temporal_precisions_numpy(truncation_order = orders_of_motion, smoothness = desired_smoothness, form = noise_type)[1])
 
-    print(Sigma_time.round(3))
-    # from matplotlib import pyplot as plt
-    # plt.imshow(Sigma_time)
-    # plt.show()
     # Sigma_time  = jnp.array(create_temporal_precisions(truncation_order = orders_of_motion, smoothness = desired_smoothness, form = noise_type)[1])
     Sigma_total = jnp.kron(Sigma_time, noise_magnitude * jnp.eye(state_dim))
-
-    print(Sigma_total[:2,:2])
 
     A0 = alpha * jnp.eye(state_dim)
 
