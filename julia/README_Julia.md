@@ -7,8 +7,8 @@ Start by [downloading and installing Julia](https://julialang.org/download/).
 If you're within the `julia` sub-directory of the root repository, do the following:
 
 1.  start up julia by typing `julia` into the command line
-2.  then navigate down to `collective_actinf` using `shell` mode
-3.  switch to `pkg` mode and then activate the package:
+2.  then navigate down to `collective_actinf` by switching to `shell` mode (via `;`)
+3.  switch to `pkg` mode using `]` and then activate the package:
 
 ```
 >>> julia
