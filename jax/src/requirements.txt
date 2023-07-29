@@ -1,7 +1,0 @@
-numpy
-matplotlib
-scipy
-funcy
-jax_md
-networkx
-colorednoise
