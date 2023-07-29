@@ -5,7 +5,7 @@
 To set up the JAX codebase, we recommend the following steps:
 
 1. Creating a virtual environment using [`venv`](https://docs.python.org/3/library/venv.html) or [`conda`](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment). This environment will have all the required dependencies (correct versions of numpy, JAX, etc.).
-2. Activate your virtual environment then install the latest version of `JAX` using `pip`. Please see the official instructions [here](https://github.com/google/jax#installation). Note that you can optionally install the CPU version or GPU versions of JAX, but be mindful of the capabilities of the machine you're running the code on. For the GPU-enabled version of JAX, you need to have an NVIDIA/CUDA-compatible GPU.
+2. Activate your virtual environment then install the latest version of `JAX` using `pip` (this may first require you to install `pip`, e.g. using `conda install pip`). Please see the official instructions for installing `JAX` [here](https://github.com/google/jax#installation). Note that you can optionally install the CPU version or GPU versions of JAX, but be mindful of the capabilities of the machine you're running the code on. For the GPU-enabled version of JAX, you need to have an NVIDIA/CUDA-compatible GPU.
 3. After installing JAX, please install the remaining requirements in your virtual environment using `pip install -r requirements.txt`
 
 ## Running the code 
