@@ -3,3 +3,6 @@ This repository provides code for simulating emergent collective motion from gro
 
 This codebase contains both [`JAX`](https://github.com/google/jax) and a [`Julia`](https://julialang.org/) implementations of a multi-agent active inference algorithm for generating collective motion. The `JAX` implementation (in the `jax` folder) is the recommended implementation, especially because all code automatically takes advantage of GPU-support on machines with NVIDIA-capable GPUs (see [here](https://github.com/google/jax#pip-installation-gpu-cuda-installed-via-pip-easier) for the official instructions). 
 
+- `JAX` installation/run instructions [here](https://github.com/conorheins/collective_motion_actinf/blob/main/jax/README_JAX.md)
+- `Julia` installation/run instructions [here](https://github.com/conorheins/collective_motion_actinf/blob/main/julia/README_Julia.md)
+
