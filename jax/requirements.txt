@@ -1,7 +1,4 @@
-matplotlib==3.6.0
+matplotlib>=3.4.0
+networkx
 funcy
-jax_md==0.2.3
-typing_extensions==4.3.0
-dm-haiku==0.0.8
-networkx==2.8.8
-colorednoise
+jax-md
