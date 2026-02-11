@@ -38,6 +38,34 @@ uv run python src/demo_nolearning.py --seed 2 --N 10 --dt 0.01 --T 20 --last_T_s
 
 You can append `--save` to persist trajectory history in a local `.npz` file.
 
+## Interactive Explorer
+
+A new interactive desktop explorer is available at:
+
+```bash
+uv run python src/demo_interactive.py
+```
+
+It provides:
+- Real-time 2D swarm visualization
+- Selected-agent belief traces
+- Free-energy and prediction-error diagnostics
+- Interactive knobs + controls (`Play/Pause`, `Step`, `Reset/Apply`, `Random Seed`)
+
+### Headless smoke mode
+
+Use this mode in CI/headless environments to validate startup and stepping without opening a GUI:
+
+```bash
+uv run python src/demo_interactive.py --headless-smoke --headless-steps 20
+```
+
+### Control semantics
+
+- Live-updated controls (take effect on future steps): noise levels (`z_h`, `z_hprime`, `z_action`), model precision scales (`pi_z_spatial`, `pi_w_spatial`), flow parameters (`alpha`, `eta_order_*`), optimizer rates (`infer_lr`, `action_lr`, `learning_lr`), and `speed`.
+- Reset-required controls (queued until `Reset/Apply`): `N`, `n_sectors`, `sector_angle`, `dt`, and mode changes (`nolearning`/`learning`).
+- Structural changes are intentionally reset-only so tensor shapes and compiled kernels remain consistent and performant.
+
 ## Testing
 
 ```bash

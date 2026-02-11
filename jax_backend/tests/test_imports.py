@@ -13,8 +13,10 @@ MODULES = [
     "genmodel",
     "genprocess",
     "inference",
+    "interactive",
     "learning",
     "utils",
+    "demo_interactive",
     "demo_nolearning",
     "demo_withlearning",
 ]

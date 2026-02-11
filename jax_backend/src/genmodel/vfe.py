@@ -144,4 +144,39 @@ def compute_vfe_vectorized(mu: array, phi: array, empty_sectors_mask: array, gen
 
 
     return vfe
+
+
+def compute_vfe_vectorized_components(mu: array, phi: array, empty_sectors_mask: array, genmodel: Dict):
+    """
+    Computes Laplace VFE vectorized across agents and returns a decomposition into
+    total, sensory, and process/error terms (all per-agent vectors).
+    """
+
+    g, g_params = genmodel['g'], genmodel['g_params']
+    g_vm = vmap(g, (1, 0), 1)
+    Pi_z = genmodel['Pi_z']
+
+    f, f_params = genmodel['f'], genmodel['f_params']
+    f_vm = vmap(f, (1, 0), 1)
+    Pi_w = genmodel['Pi_w']
+
+    D_shift = genmodel['D_shift']
+
+    s_pe = phi - g_vm(mu, g_params)
+    s_pe = zero_out(s_pe, empty_sectors_mask)
+
+    p_weighted_spe = vmap(matrix_vec, (0, 1), 1)(Pi_z, s_pe)
+    p_weighted_spe = zero_out(p_weighted_spe, empty_sectors_mask)
+    sensory_term = (s_pe * p_weighted_spe).sum(axis=0)
+
+    p_pe = D_shift @ mu - f_vm(mu, f_params)
+    p_weighted_ppe = vmap(matrix_vec, (0, 1), 1)(Pi_w, p_pe)
+    process_term = (p_pe * p_weighted_ppe).sum(axis=0)
+
+    logdet_vm = vmap(log_det)
+    variance_term = -logdet_vm(Pi_z) - logdet_vm(Pi_w)
+
+    total_vfe = 0.5 * (sensory_term + process_term + variance_term)
+
+    return total_vfe, sensory_term, process_term
     
