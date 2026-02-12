@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import time
 from collections import deque
-from dataclasses import fields
+from dataclasses import fields, replace
 from typing import Any, Dict
 
 import numpy as np
@@ -32,8 +32,8 @@ def _parse_learnables(raw: str) -> tuple[str, ...]:
 class InteractiveExplorerUI:
     def __init__(self, engine: InteractiveSimulationEngine) -> None:
         self.engine = engine
-        self._default_live = LiveConfig()
-        self._default_structural = StructuralConfig()
+        self._default_live = replace(self.engine.live_config)
+        self._default_structural = replace(self.engine.structural_config)
 
         self.is_running = True
         self.steps_per_frame = 4
@@ -49,11 +49,13 @@ class InteractiveExplorerUI:
         self._mu_step_history: deque[int] = deque(maxlen=self.engine.history_window)
         self._preparam_history: deque[dict[str, np.ndarray]] = deque(maxlen=self.engine.history_window)
         self._preparam_step_history: deque[int] = deque(maxlen=self.engine.history_window)
+        self._click_perturb_scale = 1.0
 
         self._build_figure()
         self._initialize_artists()
 
         self._animation = FuncAnimation(self.fig, self._on_timer, interval=50, blit=False, cache_frame_data=False)
+        self._click_cid = self.fig.canvas.mpl_connect("button_press_event", self._on_swarm_click)
 
     def show(self) -> None:
         plt.show()
@@ -573,6 +575,8 @@ class InteractiveExplorerUI:
 
         pending_structural_txt = "none" if not self._pending_structural else ", ".join(sorted(self._pending_structural.keys()))
         pending_live_txt = "none" if not self._pending_live else ", ".join(sorted(self._pending_live.keys()))
+        perturb_txt = getattr(self, "_perturbation_note", "none")
+        self._perturbation_note = "none"
 
         text = (
             f"step: {snap.step_idx}\n"
@@ -588,10 +592,49 @@ class InteractiveExplorerUI:
             f"F std: {d.free_energy_std:.3f}\n"
             f"sensory term: {d.sensory_pe_mean:.3f}\n"
             f"process term: {d.process_pe_mean:.3f}\n"
+            f"perturbation: {perturb_txt}\n"
             f"pending live: {pending_live_txt}\n"
             f"pending structural: {pending_structural_txt}"
         )
         self.status_text.set_text(text)
+
+    def _on_swarm_click(self, event: Any) -> None:
+        if event.inaxes != self.ax_swarm:
+            return
+        if event.button != 1:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+
+        snap = self.engine.get_snapshot()
+        pos = np.asarray(snap.pos)
+        if pos.size == 0:
+            return
+
+        click_xy = np.array([event.xdata, event.ydata], dtype=float)
+        sq_dists = np.sum((pos - click_xy) ** 2, axis=1)
+        target_agent = int(np.argmin(sq_dists))
+
+        selected_pos = pos[target_agent]
+        kick_dir = selected_pos - click_xy
+        kick_norm = float(np.linalg.norm(kick_dir))
+        if kick_norm <= 1e-12:
+            vel = np.asarray(snap.vel[target_agent])
+            vel_norm = float(np.linalg.norm(vel))
+            if vel_norm <= 1e-12:
+                kick_dir = np.array([1.0, 0.0], dtype=float)
+            else:
+                kick_dir = np.array([-vel[1], vel[0]], dtype=float)
+            kick_norm = float(np.linalg.norm(kick_dir))
+
+        kick_unit = kick_dir / kick_norm
+        base_kick = max(0.25, 0.5 * float(self.engine.live_config.speed))
+        kick = tuple((self._click_perturb_scale * base_kick * kick_unit).tolist())
+
+        self.engine.apply_agent_perturbation(target_agent, mode="velocity", velocity_delta=kick)
+        self.selected_agent = target_agent
+        self._perturbation_note = f"agent {target_agent}"
+        self._refresh_plots()
 
 
 def run_headless_smoke(args: argparse.Namespace) -> None:
@@ -691,7 +734,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--z_h", type=float, default=0.01)
     parser.add_argument("--z_hprime", type=float, default=0.01)
-    parser.add_argument("--z_action", type=float, default=0.01)
+    parser.add_argument("--z_action", type=float, default=0.001)
     parser.add_argument("--pi_z_spatial", type=float, default=1.0)
     parser.add_argument("--pi_w_spatial", type=float, default=1.0)
     parser.add_argument("--alpha", type=float, default=0.5)

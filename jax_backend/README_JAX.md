@@ -52,6 +52,7 @@ It provides:
 - Free-energy and prediction-error diagnostics (including selected-agent VFE trace)
 - Learning-parameter traces over time in learning mode
 - Interactive knobs + controls (`Play/Pause`, `Step`, `Reset/Apply`, `Knob Defaults`, `Random Seed`, `Prev Agent`, `Next Agent`)
+- Left-click perturbations on the swarm panel to give an individual a velocity kick (selected agent turns away from the click point and gets a temporary nudge)
 
 ### Headless smoke mode
 
@@ -67,6 +68,12 @@ uv run python src/demo_interactive.py --headless-smoke --headless-steps 20
 - Reset-required controls (queued until `Reset/Apply`): `N`, `n_sectors`, `sector_angle`, and `dt`.
 - Learning mode toggle is a dedicated `LEARNING ON/OFF` button (green/red) that applies immediately.
 - Structural changes are intentionally reset-only so tensor shapes and compiled kernels remain consistent and performant.
+- In this interactive viewer, `z_action` defaults to `0.001` (lower than the non-interactive demos).
+
+### Observation-noise convention
+
+- `z_h`: variance of additive observation noise on position-like (order-0 distance) observations (`h`).
+- `z_hprime`: variance of additive observation noise on velocity-like observations (`h'`, first derivative of visual-distance dynamics).
 
 ## Testing
 

@@ -113,3 +113,18 @@ def test_vfe_vectorized_component_decomposition_consistency() -> None:
     assert np.allclose(np.array(vfe), np.array(vfe_components), atol=1e-6)
     assert np.all(np.isfinite(np.array(sensory_term)))
     assert np.all(np.isfinite(np.array(process_term)))
+
+
+def test_agent_velocity_perturbation() -> None:
+    engine = InteractiveSimulationEngine(
+        structural_config=StructuralConfig(N=6, dt=0.02, n_sectors=4, sector_angle=60.0, mode="nolearning"),
+        seed=9,
+    )
+
+    engine.step(3)
+    before = np.array(engine.vel[0])
+    snap = engine.apply_agent_perturbation(0, mode="velocity", velocity_delta=(1.2, -0.8))
+
+    after = np.array(snap.vel[0])
+    assert np.linalg.norm(after - before) > 0.0
+    assert snap.pos.shape == (6, 2)

@@ -313,6 +313,44 @@ class InteractiveSimulationEngine:
             },
         )
 
+    def apply_agent_perturbation(
+        self,
+        agent_idx: int,
+        mode: str = "velocity",
+        velocity_delta: tuple[float, float] | None = None,
+        sensory_delta: float | None = None,
+    ) -> SimulationSnapshot:
+        """Apply an immediate perturbation to one agent.
+
+        Supported modes:
+            - ``velocity``: add a 2D vector to the agent's current velocity.
+            - ``sensory``: add a scalar perturbation to that agent's current velocity observation noise.
+        """
+
+        if not (0 <= agent_idx < self.structural_config.N):
+            raise IndexError(f"agent_idx out of range: {agent_idx}")
+
+        if mode == "velocity":
+            if velocity_delta is None:
+                raise ValueError("velocity_delta is required when mode='velocity'")
+            delta = jnp.asarray(velocity_delta, dtype=self.vel.dtype)
+            if delta.shape != (2,):
+                raise ValueError("velocity_delta must be a length-2 tuple")
+            self.vel = self.vel.at[agent_idx].add(delta)
+        elif mode == "sensory":
+            if sensory_delta is None:
+                raise ValueError("sensory_delta is required when mode='sensory'")
+            noise_index = int(np.clip(self._t_idx, 0, self.genproc["sensory_noise"].shape[0] - 1))
+            ns_phi = self.base_genmodel["ns_phi"]
+            sensory_delta_arr = jnp.full((ns_phi,), jnp.asarray(sensory_delta, dtype=self.genproc["sensory_noise"].dtype))
+            self.genproc["sensory_noise"] = self.genproc["sensory_noise"].at[noise_index, 1, :, agent_idx].add(
+                sensory_delta_arr
+            )
+        else:
+            raise ValueError(f"Unknown perturbation mode: {mode}")
+
+        return self.get_snapshot()
+
     def set_history_window(self, history_window: int) -> None:
         """Resize retained history buffers."""
 
