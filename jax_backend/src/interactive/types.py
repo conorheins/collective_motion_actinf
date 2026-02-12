@@ -79,5 +79,6 @@ class SimulationSnapshot:
     preparams: Optional[Dict[str, Array]]
     diagnostics: StepDiagnostics
     metric_history: Dict[str, Array]
+    free_energy_history: Array
     position_history: Array
     metadata: Dict[str, Any] = field(default_factory=dict)

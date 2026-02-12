@@ -66,6 +66,7 @@ class InteractiveSimulationEngine:
         self._t_idx = 0
 
         self._metric_history: Dict[str, Deque[float]] = {}
+        self._free_energy_history: Deque[np.ndarray]
         self._position_history: Deque[np.ndarray]
         self._latest_diagnostics = StepDiagnostics(
             alignment=float("nan"),
@@ -105,7 +106,7 @@ class InteractiveSimulationEngine:
             self._t_idx += 1
 
             self._latest_diagnostics = self._compute_python_diagnostics(f_vec=f_vec, sensory_term=s_term, process_term=p_term)
-            self._append_history()
+            self._append_history(f_vec=f_vec)
 
         return self.get_snapshot()
 
@@ -266,7 +267,7 @@ class InteractiveSimulationEngine:
             sensory_term=jnp.full((n_agents,), jnp.nan),
             process_term=jnp.full((n_agents,), jnp.nan),
         )
-        self._append_history()
+        self._append_history(f_vec=jnp.full((n_agents,), jnp.nan))
 
         self._compile_step_fn()
         return self.get_snapshot()
@@ -284,6 +285,11 @@ class InteractiveSimulationEngine:
         else:
             position_history = jnp.zeros((0, self.structural_config.N, 2), dtype=jnp.float32)
 
+        if self._free_energy_history:
+            free_energy_history = jnp.asarray(np.stack(list(self._free_energy_history), axis=0))
+        else:
+            free_energy_history = jnp.zeros((0, self.structural_config.N), dtype=jnp.float32)
+
         preparams = None
         if self.preparams is not None:
             preparams = {k: v for k, v in self.preparams.items()}
@@ -297,6 +303,7 @@ class InteractiveSimulationEngine:
             preparams=preparams,
             diagnostics=self._latest_diagnostics,
             metric_history=metric_history,
+            free_energy_history=free_energy_history,
             position_history=position_history,
             metadata={
                 "mode": self.structural_config.mode,
@@ -317,6 +324,7 @@ class InteractiveSimulationEngine:
             return
 
         old_metric_history = {k: list(v) for k, v in self._metric_history.items()}
+        old_free_energy_history = list(self._free_energy_history)
         old_positions = list(self._position_history)
 
         self.history_window = history_window
@@ -325,6 +333,9 @@ class InteractiveSimulationEngine:
         for key, values in old_metric_history.items():
             for value in values[-self.history_window :]:
                 self._metric_history[key].append(value)
+
+        for f_vec in old_free_energy_history[-self.history_window :]:
+            self._free_energy_history.append(f_vec)
 
         for pos in old_positions[-self.history_window :]:
             self._position_history.append(pos)
@@ -341,9 +352,10 @@ class InteractiveSimulationEngine:
             "sensory_pe_mean": deque(maxlen=self.history_window),
             "process_pe_mean": deque(maxlen=self.history_window),
         }
+        self._free_energy_history = deque(maxlen=self.history_window)
         self._position_history = deque(maxlen=self.history_window)
 
-    def _append_history(self) -> None:
+    def _append_history(self, *, f_vec: jnp.ndarray) -> None:
         d = self._latest_diagnostics
         self._metric_history["alignment"].append(d.alignment)
         self._metric_history["cohesion"].append(d.cohesion)
@@ -354,6 +366,7 @@ class InteractiveSimulationEngine:
         self._metric_history["free_energy_std"].append(d.free_energy_std)
         self._metric_history["sensory_pe_mean"].append(d.sensory_pe_mean)
         self._metric_history["process_pe_mean"].append(d.process_pe_mean)
+        self._free_energy_history.append(np.asarray(f_vec))
         self._position_history.append(np.asarray(self.pos))
 
     def _validate_configs(self) -> None:

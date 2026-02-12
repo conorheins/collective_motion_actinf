@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import time
 from collections import deque
-from dataclasses import replace
-from typing import Any, Dict, Iterable
+from dataclasses import fields
+from typing import Any, Dict
 
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
+from matplotlib.collections import LineCollection
+from matplotlib.widgets import Button, CheckButtons, Slider, TextBox
 
 from interactive import (
     InteractiveSimulationEngine,
@@ -31,6 +32,8 @@ def _parse_learnables(raw: str) -> tuple[str, ...]:
 class InteractiveExplorerUI:
     def __init__(self, engine: InteractiveSimulationEngine) -> None:
         self.engine = engine
+        self._default_live = LiveConfig()
+        self._default_structural = StructuralConfig()
 
         self.is_running = True
         self.steps_per_frame = 4
@@ -43,6 +46,9 @@ class InteractiveExplorerUI:
         self._pending_seed: int | None = None
 
         self._mu_history: deque[np.ndarray] = deque(maxlen=self.engine.history_window)
+        self._mu_step_history: deque[int] = deque(maxlen=self.engine.history_window)
+        self._preparam_history: deque[dict[str, np.ndarray]] = deque(maxlen=self.engine.history_window)
+        self._preparam_step_history: deque[int] = deque(maxlen=self.engine.history_window)
 
         self._build_figure()
         self._initialize_artists()
@@ -59,26 +65,34 @@ class InteractiveExplorerUI:
     def _build_figure(self) -> None:
         self.fig = plt.figure(figsize=(18, 11))
 
-        self.ax_swarm = self.fig.add_axes([0.05, 0.35, 0.45, 0.60])
-        self.ax_beliefs = self.fig.add_axes([0.54, 0.63, 0.22, 0.32])
-        self.ax_energy = self.fig.add_axes([0.54, 0.35, 0.22, 0.22])
-        self.ax_metrics = self.fig.add_axes([0.78, 0.35, 0.20, 0.60])
+        self.ax_swarm = self.fig.add_axes([0.05, 0.42, 0.45, 0.53])
+        self.ax_belief_orders = [
+            self.fig.add_axes([0.52, 0.79, 0.22, 0.16]),
+            self.fig.add_axes([0.52, 0.61, 0.22, 0.16]),
+            self.fig.add_axes([0.52, 0.43, 0.22, 0.16]),
+        ]
+        self.ax_vfe = self.fig.add_axes([0.76, 0.79, 0.22, 0.16])
+        self.ax_errors = self.fig.add_axes([0.76, 0.61, 0.22, 0.16])
+        self.ax_learning = self.fig.add_axes([0.76, 0.43, 0.22, 0.16])
+        self.ax_metrics = self.fig.add_axes([0.785, 0.205, 0.195, 0.205])
         self.ax_metrics.axis("off")
 
-        self.status_text = self.ax_metrics.text(0.0, 1.0, "", va="top", ha="left", fontsize=10)
+        self.status_text = self.ax_metrics.text(0.0, 1.0, "", va="top", ha="left", fontsize=9, linespacing=1.1)
 
-        # Buttons
-        btn_y = 0.29
-        self.ax_btn_play = self.fig.add_axes([0.05, btn_y, 0.09, 0.04])
-        self.ax_btn_step = self.fig.add_axes([0.15, btn_y, 0.09, 0.04])
-        self.ax_btn_reset = self.fig.add_axes([0.25, btn_y, 0.12, 0.04])
-        self.ax_btn_seed = self.fig.add_axes([0.38, btn_y, 0.12, 0.04])
-        self.ax_btn_prev = self.fig.add_axes([0.54, btn_y, 0.09, 0.04])
-        self.ax_btn_next = self.fig.add_axes([0.64, btn_y, 0.09, 0.04])
+        # Buttons (single horizontal row)
+        btn_y = 0.355
+        self.ax_btn_play = self.fig.add_axes([0.05, btn_y, 0.082, 0.04])
+        self.ax_btn_step = self.fig.add_axes([0.14, btn_y, 0.072, 0.04])
+        self.ax_btn_reset = self.fig.add_axes([0.22, btn_y, 0.105, 0.04])
+        self.ax_btn_defaults = self.fig.add_axes([0.333, btn_y, 0.125, 0.04])
+        self.ax_btn_seed = self.fig.add_axes([0.466, btn_y, 0.105, 0.04])
+        self.ax_btn_prev = self.fig.add_axes([0.579, btn_y, 0.092, 0.04])
+        self.ax_btn_next = self.fig.add_axes([0.679, btn_y, 0.092, 0.04])
 
         self.btn_play = Button(self.ax_btn_play, "Pause")
         self.btn_step = Button(self.ax_btn_step, "Step")
         self.btn_reset = Button(self.ax_btn_reset, "Reset/Apply")
+        self.btn_defaults = Button(self.ax_btn_defaults, "Knob Defaults")
         self.btn_seed = Button(self.ax_btn_seed, "Random Seed")
         self.btn_prev = Button(self.ax_btn_prev, "Prev Agent")
         self.btn_next = Button(self.ax_btn_next, "Next Agent")
@@ -86,20 +100,21 @@ class InteractiveExplorerUI:
         self.btn_play.on_clicked(self._on_play_pause)
         self.btn_step.on_clicked(self._on_step_once)
         self.btn_reset.on_clicked(self._on_apply_and_reset)
+        self.btn_defaults.on_clicked(self._on_reset_knobs_to_defaults)
         self.btn_seed.on_clicked(self._on_random_seed)
         self.btn_prev.on_clicked(self._on_prev_agent)
         self.btn_next.on_clicked(self._on_next_agent)
 
-        # Mode toggle
-        self.ax_mode_radio = self.fig.add_axes([0.78, 0.26, 0.18, 0.08])
-        self.mode_radio = RadioButtons(self.ax_mode_radio, ["nolearning", "learning"])
-        self.mode_radio.set_active(0 if self.engine.structural_config.mode == "nolearning" else 1)
-        self.mode_radio.on_clicked(self._on_mode_change)
+        # Learning mode toggle
+        self.ax_mode_toggle = self.fig.add_axes([0.76, 0.155, 0.22, 0.04])
+        self.btn_mode_toggle = Button(self.ax_mode_toggle, "")
+        self.btn_mode_toggle.on_clicked(self._on_mode_toggle_click)
+        self._refresh_mode_toggle_button()
 
         # Learnable toggles
         ndo_x = self.engine.base_genmodel.get("ndo_x", 3)
         labels = self.engine.learnable_registry.list_available(ndo_x)
-        self.ax_learnables = self.fig.add_axes([0.78, 0.05, 0.18, 0.20])
+        self.ax_learnables = self.fig.add_axes([0.76, 0.01, 0.22, 0.13])
         current_active = set(self.engine.learning_config.active_learnables)
         states = [label in current_active for label in labels]
         self.learnables_check = CheckButtons(self.ax_learnables, labels, states)
@@ -109,48 +124,79 @@ class InteractiveExplorerUI:
         # Sliders
         self._sliders: dict[str, Slider] = {}
         self._add_sliders()
+        self._eta_boxes: dict[int, TextBox] = {}
+        self._add_eta_text_boxes()
 
         self.fig.suptitle("Interactive Collective Motion Explorer", fontsize=16)
 
     def _add_sliders(self) -> None:
         live = self.engine.live_config
         struct = self.engine.structural_config
-        eta_values = [live.eta_orders[idx] if idx < len(live.eta_orders) else 0.0 for idx in range(3)]
 
         slider_specs = [
-            ("z_h", 0.0001, 0.25, live.z_h, False, "live"),
-            ("z_hprime", 0.0001, 0.25, live.z_hprime, False, "live"),
-            ("z_action", 0.0001, 0.25, live.z_action, False, "live"),
-            ("pi_z_spatial", 0.05, 5.0, live.pi_z_spatial, False, "live"),
-            ("pi_w_spatial", 0.05, 5.0, live.pi_w_spatial, False, "live"),
-            ("alpha", 0.01, 2.0, live.alpha, False, "live"),
-            ("eta_order_0", -2.0, 2.0, eta_values[0], False, "live"),
-            ("eta_order_1", -2.0, 2.0, eta_values[1], False, "live"),
-            ("eta_order_2", -2.0, 2.0, eta_values[2], False, "live"),
-            ("infer_lr", 0.001, 1.0, live.infer_lr, False, "live"),
-            ("action_lr", 0.001, 1.0, live.action_lr, False, "live"),
-            ("learning_lr", 0.00001, 0.05, live.learning_lr, False, "live"),
-            ("speed", 0.1, 3.0, live.speed, False, "live"),
-            ("N", 4, 200, struct.N, True, "struct"),
-            ("n_sectors", 2, 10, struct.n_sectors, True, "struct_even"),
-            ("sector_angle", 20.0, 170.0, struct.sector_angle, False, "struct"),
-            ("dt", 0.005, 0.05, struct.dt, False, "struct"),
-            ("history", 50, 2000, self.engine.history_window, True, "history"),
+            ("z_h", "z_h", 0.0001, 0.25, live.z_h, False, "live"),
+            ("z_hprime", "z_hprime", 0.0001, 0.25, live.z_hprime, False, "live"),
+            ("z_action", "z_action", 0.0001, 0.25, live.z_action, False, "live"),
+            ("pi_z_spatial", "pi_z_spatial", 0.05, 5.0, live.pi_z_spatial, False, "live"),
+            ("pi_w_spatial", "pi_w_spatial", 0.05, 5.0, live.pi_w_spatial, False, "live"),
+            ("alpha", "alpha", 0.01, 2.0, live.alpha, False, "live"),
+            ("infer_lr", "infer_lr", 0.001, 1.0, live.infer_lr, False, "live"),
+            ("action_lr", "action_lr", 0.001, 1.0, live.action_lr, False, "live"),
+            ("learning_lr", "learning_lr", 0.00001, 0.05, live.learning_lr, False, "live"),
+            ("speed", "speed", 0.1, 3.0, live.speed, False, "live"),
+            ("N", "N", 4, 200, struct.N, True, "struct"),
+            ("n_sectors", "n_sectors", 2, 10, struct.n_sectors, True, "struct_even"),
+            ("sector_angle", "sector_angle", 20.0, 170.0, struct.sector_angle, False, "struct"),
+            ("dt", "dt", 0.005, 0.05, struct.dt, False, "struct"),
+            ("history", "history", 50, 2000, self.engine.history_window, True, "history"),
         ]
 
-        base_x = 0.05
-        base_y = 0.22
-        row_h = 0.045
-        col_w = 0.22
+        base_y = 0.31
+        row_h = 0.03
+        slider_w = 0.24
+        col_positions = [0.05, 0.44]
 
-        for idx, (name, vmin, vmax, init, is_int, kind) in enumerate(slider_specs):
-            row = idx // 4
-            col = idx % 4
-            ax = self.fig.add_axes([base_x + col * col_w, base_y - row * row_h, 0.20, 0.02])
+        for idx, (key, label, vmin, vmax, init, is_int, kind) in enumerate(slider_specs):
+            row = idx // 2
+            col = idx % 2
+            ax = self.fig.add_axes([col_positions[col], base_y - row * row_h, slider_w, 0.018])
             valstep = 1 if is_int else None
-            slider = Slider(ax, name, vmin, vmax, valinit=init, valstep=valstep)
-            slider.on_changed(self._make_slider_handler(name, kind, is_int))
-            self._sliders[name] = slider
+            slider = Slider(ax, label, vmin, vmax, valinit=init, valstep=valstep)
+            slider.label.set_fontsize(8)
+            slider.valtext.set_fontsize(8)
+            slider.on_changed(self._make_slider_handler(key, kind, is_int))
+            self._sliders[key] = slider
+
+    def _add_eta_text_boxes(self) -> None:
+        eta_values = [self.engine.live_config.eta_orders[idx] if idx < len(self.engine.live_config.eta_orders) else 0.0 for idx in range(3)]
+
+        box_y = 0.038
+        box_w = 0.12
+        box_h = 0.03
+        for order_idx in range(3):
+            ax = self.fig.add_axes([0.05 + (order_idx * 0.15), box_y, box_w, box_h])
+            box = TextBox(ax, f"eta_order_{order_idx}", initial=f"{eta_values[order_idx]:.3f}")
+            box.on_submit(self._make_eta_submit_handler(order_idx))
+            self._eta_boxes[order_idx] = box
+
+    def _make_eta_submit_handler(self, order_idx: int):
+        def _handler(text_value: str) -> None:
+            try:
+                value = float(text_value.strip())
+            except ValueError:
+                self._eta_boxes[order_idx].ax.set_facecolor("#f8d7da")
+                self.fig.canvas.draw_idle()
+                return
+
+            self._eta_boxes[order_idx].ax.set_facecolor("white")
+            eta_orders = list(self.engine.live_config.eta_orders)
+            while len(eta_orders) <= order_idx:
+                eta_orders.append(0.0)
+            eta_orders[order_idx] = value
+            self._pending_live["eta_orders"] = tuple(eta_orders)
+            self._last_live_change_s = time.time()
+
+        return _handler
 
     def _make_slider_handler(self, name: str, kind: str, is_int: bool):
         def _handler(value: float) -> None:
@@ -175,6 +221,15 @@ class InteractiveExplorerUI:
             if kind == "history":
                 self.engine.set_history_window(int(value_cast))
                 self._mu_history = deque(list(self._mu_history)[-self.engine.history_window :], maxlen=self.engine.history_window)
+                self._mu_step_history = deque(
+                    list(self._mu_step_history)[-self.engine.history_window :], maxlen=self.engine.history_window
+                )
+                self._preparam_history = deque(
+                    list(self._preparam_history)[-self.engine.history_window :], maxlen=self.engine.history_window
+                )
+                self._preparam_step_history = deque(
+                    list(self._preparam_step_history)[-self.engine.history_window :], maxlen=self.engine.history_window
+                )
                 return
 
             if kind == "struct_even":
@@ -197,7 +252,8 @@ class InteractiveExplorerUI:
         self._refresh_plots()
 
     def _on_apply_and_reset(self, _event: Any) -> None:
-        learning_updates = self._pending_learning if self._pending_learning else None
+        selected_learnables = self._get_selected_learnables_from_widget()
+        learning_updates = {"active_learnables": selected_learnables}
         structural_updates = self._pending_structural if self._pending_structural else None
 
         self.engine.apply_structural_and_reset(
@@ -211,6 +267,10 @@ class InteractiveExplorerUI:
         self._pending_learning = {}
         self.selected_agent = min(self.selected_agent, self.engine.structural_config.N - 1)
         self._mu_history = deque(maxlen=self.engine.history_window)
+        self._mu_step_history = deque(maxlen=self.engine.history_window)
+        self._preparam_history = deque(maxlen=self.engine.history_window)
+        self._preparam_step_history = deque(maxlen=self.engine.history_window)
+        self._refresh_mode_toggle_button()
         self._refresh_plots()
 
     def _on_random_seed(self, _event: Any) -> None:
@@ -225,14 +285,70 @@ class InteractiveExplorerUI:
         self.selected_agent = (self.selected_agent + 1) % self.engine.structural_config.N
         self._refresh_plots()
 
-    def _on_mode_change(self, label: str) -> None:
-        self._pending_structural["mode"] = label
+    def _effective_mode(self) -> str:
+        return str(self.engine.structural_config.mode)
+
+    def _refresh_mode_toggle_button(self) -> None:
+        mode = self._effective_mode()
+        if mode == "learning":
+            color = "#2e7d32"
+            hovercolor = "#388e3c"
+            label = "LEARNING ON (click to disable)"
+        else:
+            color = "#c62828"
+            hovercolor = "#d32f2f"
+            label = "LEARNING OFF (click to enable)"
+
+        self.ax_mode_toggle.set_facecolor(color)
+        self.btn_mode_toggle.color = color
+        self.btn_mode_toggle.hovercolor = hovercolor
+        self.btn_mode_toggle.label.set_text(label)
+        self.btn_mode_toggle.label.set_color("white")
+        self.btn_mode_toggle.label.set_fontsize(9)
+
+    def _on_mode_toggle_click(self, _event: Any) -> None:
+        current_mode = self._effective_mode()
+        new_mode = "learning" if current_mode == "nolearning" else "nolearning"
+        learning_updates = {"active_learnables": self._get_selected_learnables_from_widget()}
+        self.engine.apply_structural_and_reset(structural_updates={"mode": new_mode}, learning_updates=learning_updates)
+        self._pending_structural.pop("mode", None)
+        self.selected_agent = min(self.selected_agent, self.engine.structural_config.N - 1)
+        self._mu_history = deque(maxlen=self.engine.history_window)
+        self._mu_step_history = deque(maxlen=self.engine.history_window)
+        self._preparam_history = deque(maxlen=self.engine.history_window)
+        self._preparam_step_history = deque(maxlen=self.engine.history_window)
+        self._refresh_mode_toggle_button()
+        self._refresh_plots()
+
+    def _on_reset_knobs_to_defaults(self, _event: Any) -> None:
+        live_field_names = {f.name for f in fields(LiveConfig)}
+        struct_field_names = {f.name for f in fields(StructuralConfig)}
+
+        for key, slider in self._sliders.items():
+            if key in live_field_names:
+                slider.set_val(getattr(self._default_live, key))
+            elif key in struct_field_names:
+                slider.set_val(getattr(self._default_structural, key))
+            elif key == "history":
+                slider.set_val(400)
+
+        eta_defaults = list(self._default_live.eta_orders[:3])
+        for idx, value in enumerate(eta_defaults):
+            if idx in self._eta_boxes:
+                self._eta_boxes[idx].set_val(f"{value:.3f}")
+
+        self._pending_live["eta_orders"] = tuple(eta_defaults)
+        self._last_live_change_s = time.time()
 
     def _on_learnables_change(self, _label: str) -> None:
+        active = self._get_selected_learnables_from_widget()
+        self._pending_learning["active_learnables"] = active
+
+    def _get_selected_learnables_from_widget(self) -> tuple[str, ...]:
         labels = list(self.learnables_check.labels)
         states = self.learnables_check.get_status()
         active = tuple(label.get_text() for label, state in zip(labels, states) if state)
-        self._pending_learning["active_learnables"] = active
+        return active
 
     def _on_timer(self, _frame: int):
         self._apply_pending_live_if_ready()
@@ -259,12 +375,20 @@ class InteractiveExplorerUI:
 
     def _refresh_plots(self) -> None:
         snap = self.engine.get_snapshot()
+        self._refresh_mode_toggle_button()
         pos = np.asarray(snap.pos)
         vel = np.asarray(snap.vel)
 
-        self._mu_history.append(np.asarray(snap.mu))
+        if (not self._mu_step_history) or (snap.step_idx != self._mu_step_history[-1]):
+            self._mu_history.append(np.asarray(snap.mu))
+            self._mu_step_history.append(int(snap.step_idx))
+            if snap.preparams is not None:
+                self._preparam_history.append({k: np.asarray(v) for k, v in snap.preparams.items()})
+                self._preparam_step_history.append(int(snap.step_idx))
 
         self.ax_swarm.cla()
+        trail = np.asarray(snap.position_history)
+        self._draw_history_traces(trail, int(np.clip(self.selected_agent, 0, pos.shape[0] - 1)))
         self.ax_swarm.scatter(pos[:, 0], pos[:, 1], s=25, color="tab:blue", alpha=0.9)
         self.ax_swarm.quiver(
             pos[:, 0],
@@ -273,19 +397,17 @@ class InteractiveExplorerUI:
             vel[:, 1],
             angles="xy",
             scale_units="xy",
-            scale=1.0,
+            scale=24.0,
             color="0.45",
-            alpha=0.65,
-            width=0.002,
+            alpha=0.60,
+            width=0.0014,
+            headwidth=2.4,
+            headlength=3.0,
+            headaxislength=2.8,
         )
 
         agent = int(np.clip(self.selected_agent, 0, pos.shape[0] - 1))
         self.ax_swarm.scatter([pos[agent, 0]], [pos[agent, 1]], s=75, color="tab:red", label=f"Agent {agent}")
-
-        if snap.position_history.shape[0] > 1:
-            trail = np.asarray(snap.position_history)
-            trail_agent = trail[:, agent, :]
-            self.ax_swarm.plot(trail_agent[:, 0], trail_agent[:, 1], color="tab:red", alpha=0.5, linewidth=1.3)
 
         x_min, x_max = np.min(pos[:, 0]), np.max(pos[:, 0])
         y_min, y_max = np.min(pos[:, 1]), np.max(pos[:, 1])
@@ -298,57 +420,153 @@ class InteractiveExplorerUI:
         self.ax_swarm.set_ylabel("Y")
         self.ax_swarm.legend(loc="upper right", fontsize=8)
 
-        self._refresh_belief_panel(agent)
-        self._refresh_energy_panel(snap)
+        self._refresh_belief_panels(agent)
+        self._refresh_vfe_panel(snap, agent)
+        self._refresh_error_panel(snap)
+        self._refresh_learning_panel(snap, agent)
         self._refresh_metric_text(snap)
 
         self.fig.canvas.draw_idle()
 
-    def _refresh_belief_panel(self, agent: int) -> None:
-        self.ax_beliefs.cla()
-
-        if not self._mu_history:
-            self.ax_beliefs.set_title("Selected-Agent Beliefs")
+    def _draw_history_traces(self, position_history: np.ndarray, selected_agent: int) -> None:
+        if position_history.shape[0] < 2:
             return
 
-        mu_hist = np.stack(list(self._mu_history), axis=0)  # (T, n_mu, N)
+        trail_len = min(24, position_history.shape[0])
+        history = position_history[-trail_len:]
+        n_segments = history.shape[0] - 1
+        n_agents = history.shape[1]
+
+        all_segments = np.stack([history[:-1], history[1:]], axis=2).reshape(-1, 2, 2)
+        base_colors = plt.cm.Greys(np.linspace(0.45, 0.85, n_segments))
+        base_colors[:, 3] = np.linspace(0.12, 0.55, n_segments)
+        all_colors = np.repeat(base_colors, n_agents, axis=0)
+        lc_all = LineCollection(all_segments, colors=all_colors, linewidths=2.2, zorder=1)
+        self.ax_swarm.add_collection(lc_all)
+
+        selected_history = history[:, selected_agent, :]
+        selected_segments = np.stack([selected_history[:-1], selected_history[1:]], axis=1)
+        selected_colors = plt.cm.Reds(np.linspace(0.45, 0.9, n_segments))
+        selected_colors[:, 3] = np.linspace(0.45, 0.98, n_segments)
+        lc_selected = LineCollection(selected_segments, colors=selected_colors, linewidths=3.6, zorder=2)
+        self.ax_swarm.add_collection(lc_selected)
+
+    def _refresh_belief_panels(self, agent: int) -> None:
+        for idx, axis in enumerate(self.ax_belief_orders):
+            axis.cla()
+
+        if not self._mu_history:
+            for idx, axis in enumerate(self.ax_belief_orders):
+                axis.set_title(f"Beliefs Order {idx}")
+            return
+
+        mu_hist = np.stack(list(self._mu_history), axis=0)
+        t_axis = np.asarray(self._mu_step_history)
         mu_agent = mu_hist[:, :, agent]
 
         ndo_x = self.engine.base_genmodel["ndo_x"]
         ns_x = self.engine.base_genmodel["ns_x"]
         mu_agent = mu_agent.reshape(mu_agent.shape[0], ndo_x, ns_x)
-        mu_order_mean = mu_agent.mean(axis=2)
+        cmap = plt.cm.tab10(np.linspace(0.0, 1.0, ns_x))
 
-        t_axis = np.arange(mu_order_mean.shape[0])
-        for order_idx in range(ndo_x):
-            self.ax_beliefs.plot(t_axis, mu_order_mean[:, order_idx], label=f"order {order_idx}")
+        for order_idx, axis in enumerate(self.ax_belief_orders):
+            if order_idx >= ndo_x:
+                axis.set_title(f"Beliefs Order {order_idx}")
+                axis.text(0.5, 0.5, "N/A", ha="center", va="center", transform=axis.transAxes)
+                axis.set_xticks([])
+                axis.set_yticks([])
+                continue
 
-        self.ax_beliefs.set_title(f"Beliefs (Agent {agent})")
-        self.ax_beliefs.set_xlabel("Recent Steps")
-        self.ax_beliefs.set_ylabel("Mean $\\mu$ over sectors")
-        self.ax_beliefs.legend(loc="upper right", fontsize=8)
+            for sector_idx in range(ns_x):
+                axis.plot(
+                    t_axis,
+                    mu_agent[:, order_idx, sector_idx],
+                    color=cmap[sector_idx],
+                    linewidth=1.2,
+                    label=f"s{sector_idx}",
+                )
+            axis.set_title(f"Beliefs Order {order_idx}")
+            axis.set_ylabel("$\\mu$")
+            if order_idx == (len(self.ax_belief_orders) - 1):
+                axis.set_xlabel("Simulation Step")
+            if order_idx == 0:
+                axis.legend(loc="upper right", fontsize=6, ncol=2)
 
-    def _refresh_energy_panel(self, snap) -> None:
-        self.ax_energy.cla()
+    def _refresh_vfe_panel(self, snap, agent: int) -> None:
+        self.ax_vfe.cla()
         hist = snap.metric_history
 
-        if len(hist["free_energy_mean"]) == 0:
-            self.ax_energy.set_title("Free Energy / Error Terms")
+        fe_history = np.asarray(snap.free_energy_history)
+        if fe_history.shape[0] == 0:
+            self.ax_vfe.set_title("VFE")
             return
 
-        t_axis = np.arange(len(hist["free_energy_mean"]))
+        t_axis = np.arange(fe_history.shape[0])
+        fe_agent = fe_history[:, agent]
         fe_mean = np.asarray(hist["free_energy_mean"])
-        fe_std = np.asarray(hist["free_energy_std"])
+
+        self.ax_vfe.plot(t_axis, fe_agent, color="tab:red", linewidth=1.9, label=f"agent {agent}")
+        self.ax_vfe.plot(t_axis, fe_mean, color="tab:blue", linewidth=1.2, alpha=0.65, label="group mean")
+        self.ax_vfe.set_title("Variational Free Energy")
+        self.ax_vfe.set_xlabel("Recent Steps")
+        self.ax_vfe.legend(loc="upper right", fontsize=8)
+
+    def _refresh_error_panel(self, snap) -> None:
+        self.ax_errors.cla()
+        hist = snap.metric_history
+
+        if len(hist["sensory_pe_mean"]) == 0:
+            self.ax_errors.set_title("Prediction Error Terms")
+            return
+
+        t_axis = np.arange(len(hist["sensory_pe_mean"]))
         spe = np.asarray(hist["sensory_pe_mean"])
         ppe = np.asarray(hist["process_pe_mean"])
 
-        self.ax_energy.plot(t_axis, fe_mean, color="tab:blue", label="F mean")
-        self.ax_energy.fill_between(t_axis, fe_mean - fe_std, fe_mean + fe_std, color="tab:blue", alpha=0.2, label="F std")
-        self.ax_energy.plot(t_axis, spe, color="tab:orange", label="sensory term")
-        self.ax_energy.plot(t_axis, ppe, color="tab:green", label="process term")
-        self.ax_energy.set_title("Free Energy + Components")
-        self.ax_energy.set_xlabel("Recent Steps")
-        self.ax_energy.legend(loc="upper right", fontsize=8)
+        self.ax_errors.plot(t_axis, spe, color="tab:orange", label="sensory term")
+        self.ax_errors.plot(t_axis, ppe, color="tab:green", label="process term")
+        self.ax_errors.set_title("Prediction Error Terms")
+        self.ax_errors.set_xlabel("Recent Steps")
+        self.ax_errors.legend(loc="upper right", fontsize=8)
+
+    def _refresh_learning_panel(self, snap, agent: int) -> None:
+        self.ax_learning.cla()
+
+        if snap.metadata["mode"] != "learning":
+            self.ax_learning.set_title("Learned Params")
+            self.ax_learning.text(0.5, 0.5, "Learning disabled", ha="center", va="center", transform=self.ax_learning.transAxes)
+            self.ax_learning.set_xticks([])
+            self.ax_learning.set_yticks([])
+            return
+
+        active = tuple(snap.metadata.get("active_learnables", ()))
+        if not active or not self._preparam_history:
+            self.ax_learning.set_title("Learned Params")
+            self.ax_learning.text(0.5, 0.5, "No parameter history yet", ha="center", va="center", transform=self.ax_learning.transAxes)
+            self.ax_learning.set_xticks([])
+            self.ax_learning.set_yticks([])
+            return
+
+        t_axis = np.asarray(self._preparam_step_history)
+        cmap = plt.cm.Dark2(np.linspace(0.0, 1.0, max(1, len(active))))
+
+        for idx, name in enumerate(active):
+            series_raw = [entry.get(name) for entry in self._preparam_history]
+            if not series_raw or any(val is None for val in series_raw):
+                continue
+            series = np.asarray(series_raw)
+            color = cmap[idx]
+            if series.ndim == 1:
+                self.ax_learning.plot(t_axis, series, color=color, linewidth=1.6, label=name)
+            else:
+                mean_values = series.mean(axis=1)
+                selected_values = series[:, agent]
+                self.ax_learning.plot(t_axis, mean_values, color=color, linewidth=1.8, label=f"{name} mean")
+                self.ax_learning.plot(t_axis, selected_values, color=color, linewidth=1.0, linestyle="--", alpha=0.7, label=f"{name} agent")
+
+        self.ax_learning.set_title("Learned Parameter Values")
+        self.ax_learning.set_xlabel("Simulation Step")
+        self.ax_learning.legend(loc="upper right", fontsize=7, ncol=1)
 
     def _refresh_metric_text(self, snap) -> None:
         d = snap.diagnostics
@@ -360,7 +578,7 @@ class InteractiveExplorerUI:
             f"step: {snap.step_idx}\n"
             f"time: {snap.sim_time:.2f}s\n"
             f"mode: {snap.metadata['mode']}\n"
-            f"selected agent: {self.selected_agent}\n\n"
+            f"selected agent: {self.selected_agent}\n"
             f"alignment: {d.alignment:.3f}\n"
             f"cohesion: {d.cohesion:.1f}\n"
             f"components: {d.n_connected_components}\n"
@@ -369,7 +587,7 @@ class InteractiveExplorerUI:
             f"F mean: {d.free_energy_mean:.3f}\n"
             f"F std: {d.free_energy_std:.3f}\n"
             f"sensory term: {d.sensory_pe_mean:.3f}\n"
-            f"process term: {d.process_pe_mean:.3f}\n\n"
+            f"process term: {d.process_pe_mean:.3f}\n"
             f"pending live: {pending_live_txt}\n"
             f"pending structural: {pending_structural_txt}"
         )
