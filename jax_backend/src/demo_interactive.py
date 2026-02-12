@@ -49,7 +49,7 @@ class InteractiveExplorerUI:
         self._mu_step_history: deque[int] = deque(maxlen=self.engine.history_window)
         self._preparam_history: deque[dict[str, np.ndarray]] = deque(maxlen=self.engine.history_window)
         self._preparam_step_history: deque[int] = deque(maxlen=self.engine.history_window)
-        self._click_perturb_scale = 1.0
+        self._click_perturb_scale = 2.0
 
         self._build_figure()
         self._initialize_artists()
@@ -628,7 +628,7 @@ class InteractiveExplorerUI:
             kick_norm = float(np.linalg.norm(kick_dir))
 
         kick_unit = kick_dir / kick_norm
-        base_kick = max(0.25, 0.5 * float(self.engine.live_config.speed))
+        base_kick = max(0.5, 1.5 * float(self.engine.live_config.speed))
         kick = tuple((self._click_perturb_scale * base_kick * kick_unit).tolist())
 
         self.engine.apply_agent_perturbation(target_agent, mode="velocity", velocity_delta=kick)
